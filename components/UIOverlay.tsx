@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 import React, { useState, useEffect, useRef } from 'react';
-import { BuildingType, CityStats, Language, Season, Weather } from '../types';
+import { BuildingType, CityStats, Language, Season, Weather, AdvisorResponse } from '../types';
 import { BUILDINGS, UI_STRINGS, ACHIEVEMENTS, TUTORIAL_STEPS } from '../constants';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -25,6 +25,10 @@ import {
   ShoppingBag,
   Lightbulb,
   Ban,
+  Lock,
+  Star,
+  Target,
+  Clock,
   ArrowRight
 } from 'lucide-react';
 
@@ -34,7 +38,7 @@ interface UIOverlayProps {
   onSelectTool: (type: BuildingType) => void;
   lang: Language;
   onToggleLang: () => void;
-  aiAnalysis: string;
+  aiAnalysis: AdvisorResponse | null;
 }
 
 const NumberTicker = ({ value }: { value: number }) => {
@@ -77,6 +81,8 @@ const UIOverlay: React.FC<UIOverlayProps> = ({ stats, selectedTool, onSelectTool
       case BuildingType.Industrial: return <Factory className="w-5 h-5 text-white" />;
       case BuildingType.Park: return <Trees className="w-5 h-5 text-white" />;
       case BuildingType.PowerPlant: return <Zap className="w-5 h-5 text-white" />;
+      case BuildingType.Skyscraper: return <Building2 className="w-5 h-5 text-white" />; // Use Building2 for Skyscraper
+      case BuildingType.NuclearPowerPlant: return <Zap className="w-5 h-5 text-rose-400" />;
       case BuildingType.Road: return <div className="w-5 h-5 border-2 border-white rounded-sm border-dashed" />;
       default: return <Ban className="w-5 h-5 text-white" />;
     }
@@ -93,6 +99,21 @@ const UIOverlay: React.FC<UIOverlayProps> = ({ stats, selectedTool, onSelectTool
             initial={{ y: -100 }} animate={{ y: 0 }}
             className="bg-slate-900/60 backdrop-blur-xl border border-white/10 p-1 px-6 rounded-2xl shadow-xl flex gap-8 items-center h-16"
           >
+            <div className="flex flex-col">
+              <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider flex items-center gap-1">
+                <Star className="w-3 h-3" /> {t('level')} {stats.level}
+              </span>
+              <div className="w-24 bg-slate-800/50 h-1.5 rounded-full overflow-hidden border border-white/5 mt-1">
+                <motion.div
+                  className="h-full bg-blue-500"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${Math.min(100, (stats.experience / stats.nextLevelExp) * 100)}%` }}
+                />
+              </div>
+            </div>
+
+            <div className="w-px h-8 bg-white/10" />
+
             <div className="flex flex-col">
               <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider flex items-center gap-1">
                 <Coins className="w-3 h-3" /> {t('treasury')}
@@ -150,7 +171,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({ stats, selectedTool, onSelectTool
           <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
-            key={aiAnalysis} // Re-animate on change
+            key={aiAnalysis?.analysis} // Re-animate on change
             className="bg-indigo-600/90 backdrop-blur-md text-white p-3 py-2 rounded-2xl shadow-lg border border-indigo-400/30 max-w-[240px] flex items-start gap-3 relative cursor-pointer hover:bg-indigo-600 transition-colors"
             title={t('ai_advisor')}
           >
@@ -159,7 +180,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({ stats, selectedTool, onSelectTool
             </div>
             <div className="flex flex-col">
               <span className="text-[9px] uppercase font-bold text-indigo-200 tracking-wider mb-0.5">{t('ai_advisor')}</span>
-              <p className="text-[11px] leading-snug font-medium opacity-90">{aiAnalysis || "System online."}</p>
+              <p className="text-[11px] leading-snug font-medium opacity-90">{aiAnalysis?.analysis || "System online."}</p>
             </div>
           </motion.div>
         </div>
@@ -183,6 +204,46 @@ const UIOverlay: React.FC<UIOverlayProps> = ({ stats, selectedTool, onSelectTool
           </motion.div>
         </div>
       </div>
+
+      {/* Challenge Notification/Tracker */}
+      <AnimatePresence>
+        {stats.activeChallenge && (
+          <motion.div
+            initial={{ x: 200, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 200, opacity: 0 }}
+            className="absolute top-24 right-6 pointer-events-auto w-[320px] z-20"
+          >
+            <div className="bg-slate-900/90 backdrop-blur-xl border border-rose-500/30 p-5 rounded-2xl shadow-2xl relative overflow-hidden group">
+              <div className="absolute inset-0 bg-gradient-to-bl from-rose-500/10 to-transparent pointer-events-none" />
+
+              <div className="flex items-start gap-3 relative z-10 mb-3">
+                <div className="p-2 bg-rose-500/20 rounded-lg text-rose-400">
+                  <Target className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-sm tracking-tight">MAYOR CHALLENGE</h3>
+                  <p className="text-xs text-rose-300 font-bold uppercase">{stats.activeChallenge.title}</p>
+                </div>
+              </div>
+
+              <p className="text-sm text-slate-300 mb-4 leading-relaxed">
+                {stats.activeChallenge.description}
+              </p>
+
+              <div className="flex items-center justify-between text-xs font-mono bg-black/40 p-2 rounded-lg border border-white/5">
+                <div className="flex items-center gap-2 text-rose-300">
+                  <Clock className="w-3 h-3" />
+                  <span>Deadline: Day {stats.activeChallenge.deadlineDay}</span>
+                </div>
+                <div className="text-emerald-400 font-bold">
+                  Reward: ${stats.activeChallenge.reward}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Tutorial Panel */}
       <AnimatePresence mode="wait">
@@ -209,6 +270,11 @@ const UIOverlay: React.FC<UIOverlayProps> = ({ stats, selectedTool, onSelectTool
                   <p className="text-sm text-slate-300 leading-relaxed font-medium">
                     {currentTutorialStep.text[lang]}
                   </p>
+                  {currentTutorialStep.reward && (
+                    <div className="mt-2 text-xs font-bold text-emerald-400 flex items-center gap-1">
+                      <Coins className="w-3 h-3" /> Reward: ${currentTutorialStep.reward}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -279,38 +345,49 @@ const UIOverlay: React.FC<UIOverlayProps> = ({ stats, selectedTool, onSelectTool
           <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent rounded-3xl pointer-events-none" />
 
           {[
-            BuildingType.None, BuildingType.Road, BuildingType.Residential,
-            BuildingType.Commercial, BuildingType.Industrial, BuildingType.Park, BuildingType.PowerPlant
+            BuildingType.None, BuildingType.Road, BuildingType.Residential, BuildingType.Commercial,
+            BuildingType.Industrial, BuildingType.Park, BuildingType.PowerPlant,
+            BuildingType.Skyscraper, BuildingType.NuclearPowerPlant
           ].map((type) => {
             const isSelected = selectedTool === type;
             const config = BUILDINGS[type];
+            const isLocked = stats.level < config.requiredLevel;
 
             return (
               <motion.button
                 key={type}
-                onClick={() => onSelectTool(type)}
+                onClick={() => !isLocked && onSelectTool(type)}
                 layout
-                className="group relative flex flex-col items-center gap-2"
-                whileHover={{ y: -10 }}
+                className={`group relative flex flex-col items-center gap-2 ${isLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+                whileHover={!isLocked ? { y: -10 } : {}}
               >
                 {/* Price Tag on Hover */}
-                <div className="opacity-0 group-hover:opacity-100 absolute -top-12 transition-all bg-slate-900 text-slate-200 text-[10px] px-2 py-1 rounded-lg border border-white/10 shadow-xl whitespace-nowrap z-20">
-                  <div className="font-bold">{config.name[lang]}</div>
-                  {config.cost > 0 && <div className="text-emerald-400">${config.cost}</div>}
-                </div>
+                {!isLocked && (
+                  <div className="opacity-0 group-hover:opacity-100 absolute -top-12 transition-all bg-slate-900 text-slate-200 text-[10px] px-2 py-1 rounded-lg border border-white/10 shadow-xl whitespace-nowrap z-20">
+                    <div className="font-bold">{config.name[lang]}</div>
+                    {config.cost > 0 && <div className="text-emerald-400">${config.cost}</div>}
+                  </div>
+                )}
+
+                {isLocked && (
+                  <div className="opacity-0 group-hover:opacity-100 absolute -top-12 transition-all bg-slate-900 text-slate-200 text-[10px] px-2 py-1 rounded-lg border border-red-500/30 shadow-xl whitespace-nowrap z-20">
+                    <div className="font-bold text-red-400 flex items-center gap-1"><Lock className="w-3 h-3" /> {t('locked')}</div>
+                    <div className="text-slate-400">{t('req_level')} {config.requiredLevel}</div>
+                  </div>
+                )}
 
                 <div
                   className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-300 border relative overflow-hidden ${isSelected ? 'shadow-[0_0_20px_rgba(79,70,229,0.5)] border-indigo-400 scale-110 -translate-y-2 z-10' : 'border-white/5 hover:border-white/20 bg-slate-800/40'}`}
                   style={{
                     background: isSelected
                       ? `linear-gradient(135deg, ${config.color}, #1e293b)`
-                      : `linear-gradient(135deg, rgba(30,41,59,0.8), rgba(15,23,42,0.9))`
+                      : (isLocked ? '#1e293b' : `linear-gradient(135deg, rgba(30,41,59,0.8), rgba(15,23,42,0.9))`)
                   }}
                 >
                   {/* Inner Shine */}
                   <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
 
-                  <BuildingIcon type={type} />
+                  {isLocked ? <Lock className="w-5 h-5 text-slate-500" /> : <BuildingIcon type={type} />}
                 </div>
 
                 {isSelected && <motion.div layoutId="active-dot" className="w-1 h-1 bg-white rounded-full absolute -bottom-2" />}
@@ -321,6 +398,6 @@ const UIOverlay: React.FC<UIOverlayProps> = ({ stats, selectedTool, onSelectTool
       </div>
     </div>
   );
-};
+}; // End Component
 
 export default UIOverlay;

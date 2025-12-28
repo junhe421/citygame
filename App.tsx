@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Grid, TileData, BuildingType, CityStats, Language, Season, Weather, TerrainType } from './types';
+import { Grid, TileData, BuildingType, CityStats, Language, Season, Weather, TerrainType, AdvisorResponse } from './types';
 import { GRID_SIZE, BUILDINGS, TICK_RATE_MS, INITIAL_MONEY, ACHIEVEMENTS, TUTORIAL_STEPS } from './constants';
 import IsoMap from './components/IsoMap';
 import UIOverlay from './components/UIOverlay';
@@ -34,19 +34,37 @@ function App() {
   const [gameStarted, setGameStarted] = useState(false);
   const [language, setLanguage] = useState<Language>('en');
   const [grid, setGrid] = useState<Grid>(createInitialGrid);
+  const [hasSave, setHasSave] = useState(false);
+
+  useEffect(() => {
+    const save = localStorage.getItem('cityGameSave');
+    if (save) setHasSave(true);
+  }, []);
+
   const [stats, setStats] = useState<CityStats>({
     money: INITIAL_MONEY, population: 0, populationCapacity: 0, happiness: 75,
     powerGrid: { total: 0, used: 0 },
     day: 1, time: 8, season: Season.Spring, weather: Weather.Sunny,
     unlockedAchievements: [],
     currentTutorialStep: 0,
+    level: 1, experience: 0, nextLevelExp: 1000,
   });
   const [selectedTool, setSelectedTool] = useState<BuildingType>(BuildingType.Road);
-  const [aiAnalysis, setAiAnalysis] = useState("");
+  const [aiAnalysis, setAiAnalysis] = useState<AdvisorResponse | null>(null);
 
   const gridRef = useRef(grid);
   const statsRef = useRef(stats);
   useEffect(() => { gridRef.current = grid; statsRef.current = stats; }, [grid, stats]);
+
+  // Auto-save system
+  useEffect(() => {
+    if (!gameStarted) return;
+    const interval = setInterval(() => {
+      localStorage.setItem('cityGameSave', JSON.stringify({ grid: gridRef.current, stats: statsRef.current }));
+      // console.log("Game saved");
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [gameStarted]);
 
   // City Management Loop
   useEffect(() => {
@@ -65,14 +83,16 @@ function App() {
           const config = BUILDINGS[t.buildingType];
 
           dailyExpense += config.maintenance / 48; // split by ticks
-          if (t.buildingType === BuildingType.PowerPlant) totalPowerGen += config.powerGen || 0;
+          if (t.buildingType === BuildingType.PowerPlant || t.buildingType === BuildingType.NuclearPowerPlant) {
+            totalPowerGen += config.powerGen || 0;
+          }
 
-          if (t.buildingType !== BuildingType.Road && t.buildingType !== BuildingType.PowerPlant) {
+          if (t.buildingType !== BuildingType.Road && t.buildingType !== BuildingType.PowerPlant && t.buildingType !== BuildingType.NuclearPowerPlant) {
             totalPowerReq += config.powerReq || 0;
             dailyRevenue += config.incomeGen / 48;
             totalCapacity += config.popGen;
             buildingCount++;
-          } else {
+          } else if (t.buildingType === BuildingType.Road) {
             roadCount++;
           }
         });
@@ -90,12 +110,6 @@ function App() {
           nextPop -= Math.ceil((prev.population - targetPop) * 0.2); // Shrink faster
         }
 
-        // Tutorial Check
-        let nextTutorialStep = prev.currentTutorialStep;
-        if (TUTORIAL_STEPS[nextTutorialStep] && TUTORIAL_STEPS[nextTutorialStep].isComplete({ ...prev, population: nextPop }, gridRef.current)) {
-          nextTutorialStep++;
-        }
-
         return {
           ...prev,
           money: prev.money + netIncome,
@@ -104,20 +118,101 @@ function App() {
           powerGrid: { total: totalPowerGen, used: totalPowerReq },
           time: nextTime, day: nextDay,
           happiness: Math.max(0, Math.min(100, 75 + (totalPowerGen < totalPowerReq ? -20 : 5) + (buildingCount > 0 ? 5 : 0))),
-          currentTutorialStep: nextTutorialStep
+          // currentTutorialStep handled by separate effect
         };
       });
     }, TICK_RATE_MS / 2);
     return () => clearInterval(interval);
   }, [gameStarted]);
 
+  // Progression Watcher (Tutorial & Achievements & Challenges)
+  useEffect(() => {
+    if (!gameStarted) return;
+
+    // 1. Check Tutorial
+    const step = TUTORIAL_STEPS[stats.currentTutorialStep];
+    if (step && step.isComplete(stats, grid)) {
+      setStats(prev => ({
+        ...prev,
+        currentTutorialStep: prev.currentTutorialStep + 1,
+        money: prev.money + (step.reward || 0),
+        // Optional: Add XP?
+        experience: prev.experience + 50
+      }));
+    }
+
+    // 2. Check Achievements
+    const newAchievements: string[] = [];
+    ACHIEVEMENTS.forEach(ach => {
+      if (!stats.unlockedAchievements.includes(ach.id) && ach.condition(stats, grid)) {
+        newAchievements.push(ach.id);
+      }
+    });
+
+    if (newAchievements.length > 0) {
+      setStats(prev => ({
+        ...prev,
+        unlockedAchievements: [...prev.unlockedAchievements, ...newAchievements]
+      }));
+    }
+
+    // 3. Check Active Challenge
+    if (stats.activeChallenge) {
+      const chal = stats.activeChallenge;
+      let complete = false;
+
+      // Deadline Check
+      if (stats.day >= chal.deadlineDay) {
+        // FAILED
+        setStats(prev => ({ ...prev, activeChallenge: undefined }));
+        // TODO: Notification "Challenge Failed"
+        return;
+      }
+
+      switch (chal.targetType) {
+        case 'population': complete = stats.population >= chal.targetValue; break;
+        case 'happiness': complete = stats.happiness >= chal.targetValue; break;
+        case 'money': complete = stats.money >= chal.targetValue; break;
+        case 'power_surplus': complete = (stats.powerGrid.total - stats.powerGrid.used) >= chal.targetValue; break;
+        case 'park_count':
+          const parks = grid.flat().filter(t => t.buildingType === BuildingType.Park).length;
+          complete = parks >= chal.targetValue;
+          break;
+      }
+
+      if (complete) {
+        setStats(prev => ({
+          ...prev,
+          money: prev.money + chal.reward,
+          activeChallenge: undefined,
+          // Add a little XP too?
+          experience: prev.experience + 100
+        }));
+        // TODO: Notification "Challenge Complete!"
+      }
+    }
+
+  }, [grid, stats.population, stats.happiness, stats.currentTutorialStep, gameStarted, stats.money, stats.powerGrid, stats.activeChallenge, stats.day]);
+
   // AI Advisor Loop
   useEffect(() => {
     if (!gameStarted) return;
     const interval = setInterval(async () => {
-      const analysis = await generateCityAnalysis(statsRef.current, gridRef.current, language);
-      setAiAnalysis(analysis);
-    }, 15000);
+      const response = await generateCityAnalysis(statsRef.current, gridRef.current, language);
+      setAiAnalysis(response); // Store the full object
+
+      // If there's a new challenge and we don't have one, accept it
+      if (response.challenge && !statsRef.current.activeChallenge) {
+        setStats(prev => ({
+          ...prev,
+          activeChallenge: {
+            ...response.challenge!,
+            deadlineDay: prev.day + response.challenge!.deadlineDuration
+          }
+        }));
+      }
+
+    }, 20000); // Check every 20s
     return () => clearInterval(interval);
   }, [gameStarted, language]);
 
@@ -136,8 +231,36 @@ function App() {
     }
 
     const config = BUILDINGS[selectedTool];
+
+    // Check Level Requirement
+    if (stats.level < config.requiredLevel) {
+      // Optionally show feedback
+      return;
+    }
+
     if (stats.money >= config.cost && tile.buildingType === BuildingType.None) {
-      setStats(prev => ({ ...prev, money: prev.money - config.cost }));
+      // Logic for Level Up
+      let xpGain = Math.max(10, Math.floor(config.cost / 5)); // Gain ~20% of cost as XP
+
+      setStats(prev => {
+        let { experience, level, nextLevelExp } = prev;
+        experience += xpGain;
+
+        while (experience >= nextLevelExp) {
+          level++;
+          experience -= nextLevelExp;
+          nextLevelExp = Math.floor(nextLevelExp * 1.5);
+        }
+
+        return {
+          ...prev,
+          money: prev.money - config.cost,
+          experience,
+          level,
+          nextLevelExp
+        };
+      });
+
       setGrid(prev => {
         const next = [...prev];
         next[y][x] = { ...tile, buildingType: selectedTool };
@@ -146,11 +269,39 @@ function App() {
     }
   };
 
+  const handleStart = (ai: boolean, lang: Language) => {
+    setLanguage(lang);
+    setGameStarted(true);
+  };
+
+  const handleContinue = (lang: Language) => {
+    try {
+      const saveStr = localStorage.getItem('cityGameSave');
+      if (saveStr) {
+        const save = JSON.parse(saveStr);
+        if (save.grid && save.stats) {
+          setGrid(save.grid);
+          // Ensure new fields exist in loaded stats if migrating
+          setStats({
+            ...save.stats,
+            level: save.stats.level || 1,
+            experience: save.stats.experience || 0,
+            nextLevelExp: save.stats.nextLevelExp || 1000
+          });
+          setLanguage(lang);
+          setGameStarted(true);
+        }
+      }
+    } catch (e) {
+      console.error("Load failed", e);
+    }
+  };
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans">
       <IsoMap grid={grid} onTileClick={handleTileClick} hoveredTool={selectedTool} stats={stats} />
 
-      {!gameStarted && <StartScreen onStart={(_, l) => { setLanguage(l); setGameStarted(true); }} />}
+      {!gameStarted && <StartScreen onStart={(_, l) => handleStart(true, l)} hasSave={hasSave} onContinue={(_, l) => handleContinue(l)} />}
 
       {gameStarted && (
         <UIOverlay

@@ -303,6 +303,40 @@ const EnhancedBuilding = React.memo(({ type, baseColor, x, y, isNight, season, h
               <SnowLayer position={[0, 0.5, 0]} scale={[0.9, 1.2, 0.9]} enabled={isWinter} />
             </group>
 
+          case BuildingType.Skyscraper:
+            return <group>
+              <mesh castShadow receiveShadow material={mainMat} geometry={boxGeo} position={[0, 1.5, 0]} scale={[0.7, 3, 0.7]} />
+              <WindowBlock position={[0, 1.5, 0.36]} scale={[0.5, 2.5, 0.1]} isNight={isNight} />
+              <WindowBlock position={[0.36, 2.0, 0]} scale={[0.1, 1.5, 0.5]} isNight={isNight} />
+              <WindowBlock position={[-0.36, 1.0, 0]} scale={[0.1, 1.5, 0.5]} isNight={isNight} />
+              {/* Antenna */}
+              <mesh position={[0, 3.2, 0]}>
+                <cylinderGeometry args={[0.02, 0.05, 0.5, 8]} />
+                <meshStandardMaterial color="#94a3b8" />
+              </mesh>
+              <mesh position={[0, 3.45, 0]}>
+                <sphereGeometry args={[0.05]} />
+                <meshStandardMaterial color="red" emissive="red" emissiveIntensity={2} />
+              </mesh>
+            </group>
+
+          case BuildingType.NuclearPowerPlant:
+            return <group>
+              {/* Reactor Dome */}
+              <mesh castShadow receiveShadow geometry={sphereGeo} position={[0, 0.4, 0]} scale={[0.6, 0.5, 0.6]} material={mainMat} />
+              {/* Cooling Towers */}
+              <mesh castShadow receiveShadow position={[-0.3, 0.6, -0.3]} rotation={[0, 0, 0]}>
+                <cylinderGeometry args={[0.15, 0.25, 0.8, 16, 1, true]} />
+                <meshStandardMaterial color="#e5e7eb" side={THREE.DoubleSide} />
+              </mesh>
+              <mesh castShadow receiveShadow position={[0.3, 0.6, 0.2]} rotation={[0, 0, 0]}>
+                <cylinderGeometry args={[0.15, 0.25, 0.8, 16, 1, true]} />
+                <meshStandardMaterial color="#e5e7eb" side={THREE.DoubleSide} />
+              </mesh>
+              {/* Glow */}
+              <pointLight position={[0, 0.5, 0]} color="#10b981" intensity={2} distance={3} />
+            </group>
+
           default: return null;
         }
       })()}

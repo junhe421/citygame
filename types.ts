@@ -11,6 +11,8 @@ export enum BuildingType {
   Industrial = 'Industrial',
   Park = 'Park',
   PowerPlant = 'PowerPlant',
+  Skyscraper = 'Skyscraper',
+  NuclearPowerPlant = 'NuclearPowerPlant',
 }
 
 export enum TerrainType {
@@ -35,6 +37,7 @@ export interface BuildingConfig {
   incomeGen: number;
   powerGen?: number; // Power output
   powerReq?: number; // Power consumption
+  requiredLevel: number;
 }
 
 export interface TileData {
@@ -61,6 +64,16 @@ export interface TutorialStep {
   id: string;
   text: Record<Language, string>;
   isComplete: (stats: CityStats, grid: Grid) => boolean;
+  reward?: number;
+}
+
+export interface MayorChallenge {
+  title: string;
+  description: string;
+  targetType: 'population' | 'happiness' | 'money' | 'park_count' | 'power_surplus';
+  targetValue: number;
+  reward: number;
+  deadlineDay: number; // The day (stats.day) when it fails
 }
 
 export interface CityStats {
@@ -75,6 +88,10 @@ export interface CityStats {
   weather: Weather;
   unlockedAchievements: string[];
   currentTutorialStep: number;
+  level: number;
+  experience: number;
+  nextLevelExp: number;
+  activeChallenge?: MayorChallenge;
 }
 
 export interface AIGoal {
@@ -87,3 +104,8 @@ export interface AIGoal {
 
 export interface NewsItem { id: string; text: string; type: 'positive' | 'negative' | 'neutral'; }
 export interface BuildingSentiment { text: string; author: string; }
+
+export interface AdvisorResponse {
+  analysis: string;
+  challenge?: Omit<MayorChallenge, 'deadlineDay'> & { deadlineDuration: number };
+}
