@@ -1,11 +1,10 @@
-
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { Canvas, useFrame, ThreeElements } from '@react-three/fiber';
-import { MapControls, Environment, Float, Outlines, OrthographicCamera, Text } from '@react-three/drei';
+import { MapControls, Environment, Float, Outlines, OrthographicCamera, Text, Instances, Instance } from '@react-three/drei';
 import { EffectComposer, Bloom, TiltShift2, Vignette, Noise, SSAO } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { MathUtils } from 'three';
@@ -366,6 +365,62 @@ interface IsoMapProps {
   stats: any;
 }
 
+const GroundInstances = React.memo(({ grid, stats, onTileClick, onHover }: {
+  grid: Grid,
+  stats: any,
+  onTileClick: (x: number, y: number) => void,
+  onHover: (x: number, y: number) => void
+}) => {
+  const isRain = stats.weather === Weather.Rainy;
+
+  // Flatten grid for Instances
+  const instancesData = useMemo(() => {
+    const data: { x: number, y: number, position: [number, number, number], color: string, scale: [number, number, number] }[] = [];
+    grid.forEach((row, y) => {
+      row.forEach((tile, x) => {
+        if (tile.terrainType === TerrainType.Water) return;
+
+        const [wx, wh, wz] = gridToWorld(x, y, tile.height);
+        const noise = getHash(x, y);
+        const isRoad = tile.buildingType === BuildingType.Road;
+        const color = isRoad ? "#374151" : getGroundColor(stats.season, tile.terrainType, noise);
+
+        data.push({
+          x, y,
+          position: [wx, wh - 0.5, wz],
+          color,
+          scale: [1, 0.5 + tile.height * 0.5, 1]
+        });
+      });
+    });
+    return data;
+  }, [grid, stats.season]);
+
+  return (
+    <Instances
+      range={instancesData.length}
+      geometry={boxGeo}
+      castShadow
+      receiveShadow
+    >
+      <meshStandardMaterial
+        roughness={isRain ? 0.2 : 0.9}
+        metalness={isRain ? 0.3 : 0.0}
+      />
+      {instancesData.map((d, i) => (
+        <Instance
+          key={`${d.x} -${d.y} `}
+          position={d.position}
+          scale={d.scale}
+          color={d.color}
+          onClick={(e) => { e.stopPropagation(); onTileClick(d.x, d.y); }}
+          onPointerEnter={(e) => { e.stopPropagation(); onHover(d.x, d.y); }}
+        />
+      ))}
+    </Instances>
+  );
+});
+
 const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, stats }) => {
   const [hoveredTile, setHoveredTile] = useState<{ x: number, y: number } | null>(null);
   const [effects, setEffects] = useState<{ id: number, type: 'shockwave' | 'text', position: [number, number, number], text?: string }[]>([]);
@@ -386,7 +441,7 @@ const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, stats }
           setEffects(prev => [...prev, { id: Date.now() + Math.random(), type: 'shockwave', position: [wx, wh + 0.1, wz] }]);
 
           // Add Floating Text
-          setEffects(prev => [...prev, { id: Date.now() + Math.random() + 1, type: 'text', position: [wx, wh + 1, wz], text: `-$${cost}` }]);
+          setEffects(prev => [...prev, { id: Date.now() + Math.random() + 1, type: 'text', position: [wx, wh + 1, wz], text: `- $${cost} ` }]);
         }
       }
     }
@@ -404,7 +459,7 @@ const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, stats }
 
   return (
     <div className="absolute inset-0 touch-none" style={{ backgroundColor: skyColor }}>
-      <Canvas shadows dpr={[1, 2]} gl={{ antialias: false, stencil: false, depth: true }}>
+      <Canvas shadows dpr={[1, 1.5]} gl={{ antialias: false, stencil: false, depth: true, powerPreference: "high-performance" }}>
         <OrthographicCamera makeDefault zoom={25} position={[60, 60, 60]} near={-500} far={1000} />
         <MapControls enableRotate={true} minZoom={10} maxZoom={100} target={[0, -0.5, 0]} />
 
@@ -413,7 +468,7 @@ const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, stats }
           castShadow
           position={[30, 50, 20]}
           intensity={isNight ? 0.4 : 1.8}
-          shadow-mapSize={[2048, 2048]}
+          shadow-mapSize={[1024, 1024]}
           shadow-bias={-0.0001}
         />
         <Environment preset={isNight ? "night" : "city"} />
@@ -421,35 +476,25 @@ const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, stats }
         <WeatherParticles weather={stats.weather} />
         <WaterSystem />
 
+        {/* Instanced Ground Layer */}
+        <GroundInstances
+          grid={grid}
+          stats={stats}
+          onTileClick={onTileClick}
+          onHover={(x, y) => setHoveredTile({ x, y })}
+        />
+
         <group>
           {grid.map((row, y) => row.map((tile, x) => {
             const [wx, wh, wz] = gridToWorld(x, y, tile.height);
-            const noise = getHash(x, y);
-            const isWater = tile.terrainType === TerrainType.Water;
             const isRoad = tile.buildingType === BuildingType.Road;
 
             return (
-              <React.Fragment key={`${x}-${y}`}>
-                {!isWater && (
-                  <group>
-                    <mesh
-                      position={[wx, wh - 0.5, wz]}
-                      receiveShadow
-                      castShadow
-                      onPointerEnter={(e) => { e.stopPropagation(); setHoveredTile({ x, y }); }}
-                      onPointerDown={(e) => { e.stopPropagation(); onTileClick(x, y); }}
-                    >
-                      <boxGeometry args={[1, 0.5 + tile.height * 0.5, 1]} />
-                      <meshStandardMaterial
-                        color={isRoad ? "#374151" : getGroundColor(stats.season, tile.terrainType, noise)}
-                        roughness={isRain && !isRoad ? 0.2 : 0.9}
-                        metalness={isRain && !isRoad ? 0.3 : 0.0}
-                      />
-                    </mesh>
-                    {isRoad && <TrafficRoad position={[wx, wh, wz]} isNight={isNight} />}
-                  </group>
-                )}
+              <React.Fragment key={`${x} -${y} -obj`}>
+                {/* Traffic - Keep as is for now */}
+                {isRoad && <TrafficRoad position={[wx, wh, wz]} isNight={isNight} />}
 
+                {/* Buildings - Keep for distinct geometries */}
                 {tile.buildingType !== BuildingType.None && !isRoad && (
                   <group
                     position={[wx, wh - 0.5, wz]}
@@ -471,7 +516,7 @@ const IsoMap: React.FC<IsoMapProps> = ({ grid, onTileClick, hoveredTool, stats }
             );
           }))}
 
-          {hoveredTile && (
+          {hoveredTile && grid[hoveredTile.y] && grid[hoveredTile.y][hoveredTile.x] && (
             <mesh position={[grid[hoveredTile.y][hoveredTile.x].x - WORLD_OFFSET, grid[hoveredTile.y][hoveredTile.x].height * 0.5 - 0.24, grid[hoveredTile.y][hoveredTile.x].y - WORLD_OFFSET]} rotation={[-Math.PI / 2, 0, 0]}>
               <planeGeometry args={[1, 1]} />
               <meshBasicMaterial color="white" transparent opacity={0.3} />

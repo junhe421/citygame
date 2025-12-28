@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 import React, { useState, useEffect, useRef } from 'react';
+import { audioManager } from '../services/audioManager';
 import { BuildingType, CityStats, Language, Season, Weather, AdvisorResponse } from '../types';
 import { BUILDINGS, UI_STRINGS, ACHIEVEMENTS, TUTORIAL_STEPS } from '../constants';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -356,7 +357,16 @@ const UIOverlay: React.FC<UIOverlayProps> = ({ stats, selectedTool, onSelectTool
             return (
               <motion.button
                 key={type}
-                onClick={() => !isLocked && onSelectTool(type)}
+                onClick={() => {
+                  if (!isLocked) {
+                    audioManager.playSFX('click');
+                    onSelectTool(type);
+                    // SInce we can't easily import audioManager here without creating a dep cycle or just importing it:
+                    // But UIOverlay doesn't user services usually?
+                    // Actually, let's just make onSelectTool trigger the sound in parent?
+                    // Or better: import audioManager here.
+                  }
+                }}
                 layout
                 className={`group relative flex flex-col items-center gap-2 ${isLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
                 whileHover={!isLocked ? { y: -10 } : {}}

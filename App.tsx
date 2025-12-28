@@ -10,6 +10,7 @@ import IsoMap from './components/IsoMap';
 import UIOverlay from './components/UIOverlay';
 import StartScreen from './components/StartScreen';
 import { generateCityAnalysis } from './services/geminiService';
+import { audioManager } from './services/audioManager';
 
 const createInitialGrid = (): Grid => {
   const grid: Grid = [];
@@ -216,48 +217,72 @@ function App() {
     return () => clearInterval(interval);
   }, [gameStarted, language]);
 
+  // Audio Environment Update
+  useEffect(() => {
+    if (gameStarted) {
+      audioManager.init(); // Ensure init
+      audioManager.resume();
+      audioManager.updateEnvironment((stats.time < 6 || stats.time > 18), stats.weather);
+    }
+  }, [gameStarted, stats.weather, stats.time]);
+
   const handleTileClick = (x: number, y: number) => {
     if (!gameStarted) return;
-    const tile = grid[y][x];
-    if (tile.terrainType === TerrainType.Water && selectedTool !== BuildingType.Road && selectedTool !== BuildingType.None) return;
+    audioManager.init(); // Ensure init on first click
+    audioManager.resume();
 
+    const tile = grid[y][x];
+    if (tile.terrainType === TerrainType.Water && selectedTool !== BuildingType.Road && selectedTool !== BuildingType.None) {
+      // Error sound?
+      return;
+    }
+
+    // Bulldoze
     if (selectedTool === BuildingType.None) {
-      setGrid(prev => {
-        const next = [...prev];
-        next[y][x] = { ...tile, buildingType: BuildingType.None };
-        return next;
-      });
+      if (tile.buildingType !== BuildingType.None) {
+        audioManager.playSFX('destroy');
+        setGrid(prev => {
+          const next = [...prev];
+          next[y][x] = { ...tile, buildingType: BuildingType.None };
+          return next;
+        });
+        // Refund partial? Not implemented yet
+      }
       return;
     }
 
     const config = BUILDINGS[selectedTool];
-
-    // Check Level Requirement
-    if (stats.level < config.requiredLevel) {
-      // Optionally show feedback
-      return;
-    }
+    // Check level req
+    if (stats.level < config.requiredLevel) return;
 
     if (stats.money >= config.cost && tile.buildingType === BuildingType.None) {
-      // Logic for Level Up
-      let xpGain = Math.max(10, Math.floor(config.cost / 5)); // Gain ~20% of cost as XP
-
+      audioManager.playSFX('build');
       setStats(prev => {
-        let { experience, level, nextLevelExp } = prev;
-        experience += xpGain;
+        let xpGain = Math.floor(config.cost * 0.2);
+        if (xpGain < 10) xpGain = 10;
 
-        while (experience >= nextLevelExp) {
-          level++;
-          experience -= nextLevelExp;
+        let nextExperience = prev.experience + xpGain;
+        let nextLevel = prev.level;
+        let nextLevelExp = prev.nextLevelExp;
+        let leveledUp = false;
+
+        while (nextExperience >= nextLevelExp) {
+          nextExperience -= nextLevelExp;
+          nextLevel++;
           nextLevelExp = Math.floor(nextLevelExp * 1.5);
+          leveledUp = true;
+        }
+
+        if (leveledUp) {
+          audioManager.playSFX('money'); // Use money chime for level up for now
         }
 
         return {
           ...prev,
           money: prev.money - config.cost,
-          experience,
-          level,
-          nextLevelExp
+          experience: nextExperience,
+          level: nextLevel,
+          nextLevelExp: nextLevelExp
         };
       });
 
@@ -266,11 +291,15 @@ function App() {
         next[y][x] = { ...tile, buildingType: selectedTool };
         return next;
       });
+
+      // Floating text effect logic (handled in UI usually)
     }
   };
 
   const handleStart = (ai: boolean, lang: Language) => {
     setLanguage(lang);
+    audioManager.init();
+    audioManager.resume();
     setGameStarted(true);
   };
 
